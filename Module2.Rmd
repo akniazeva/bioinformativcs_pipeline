@@ -1,0 +1,140 @@
+---
+title: "Module 2: Generate Metabolic Signatures"
+author: 
+- name: Jason Cosgrove (jason.cosgrove@curie.fr)
+  affiliation:  Institut Curie, UMR168
+editor_options:
+  chunk_output_type: inline
+output:
+  html_document:
+    df_print: paged
+    number_sections: yes
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 18px;
+  }
+td {  /* Table  */
+  font-size: 8px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 10px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+
+
+# Introduction in this file we run a sequential filtering pipeline to facilitate the identification of surface markers that can be used to sort our metabolically distinct LSKs. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+
+setwd("/Users/jasoncosgrove/Dropbox/Research/bioinformatics_pipeline")
+#load in the packages that we need to run this analysis
+library(Seurat)
+library(dplyr)
+source("helpermethods.R")
+load("genesets/geneset_Robjects/metabolic_signatures.Rda")
+set.seed(12345)
+
+```
+
+
+#Perform Data QC and normalisation using the LIMMA package. 
+
+Get the metabolic and transporter genes that are differentially expressed between the mature lineages
+```{r filter1, echo=FALSE, eval= TRUE}
+#first step is to get the differentially expressed genes between E, M and L
+e.degs <- read.csv("Results/Module1/BULK_E.csv")
+m.degs <- read.csv("Results/Module1/BULK_M.csv")
+l.degs <- read.csv("Results/Module1/BULK_L.csv")
+
+e.degs <- e.degs[e.degs$logFC > 0 & e.degs$adj.P.Val < 0.1,]
+m.degs <- m.degs[m.degs$logFC > 0 & m.degs$adj.P.Val < 0.1,]
+l.degs <- l.degs[l.degs$logFC > 0 & l.degs$adj.P.Val < 0.1,]
+
+load("genesets/geneset_Robjects/metabolic_signatures.Rda")
+
+e.sig.filter1 <- intersect(e.degs$genes,c(metabolic.signatures$justMetabolic,metabolic.signatures$justTransport))
+m.sig.filter1 <- intersect(m.degs$genes,c(metabolic.signatures$justMetabolic,metabolic.signatures$justTransport))
+l.sig.filter1 <- intersect(l.degs$genes,c(metabolic.signatures$justMetabolic,metabolic.signatures$justTransport))
+
+
+```
+
+
+
+
+Remove genes which dont follow the trend at the level of RPPs
+```{r filter2, echo=FALSE, eval= TRUE}
+
+load("datasets/Haemopedia/haem_seurat.Rda")
+
+dataset <- as.matrix(haem.seurat@assays$RNA@counts)
+
+#discard genes which dont follow the trend at the level of RPPs
+m.sig.filter2 <- filterOnBulkProgenitors(m.sig.filter1,c("GMP.1","GMP.2"),c("CLP.1","CLP.2","MEP.1","MEP.2"),dataset)
+e.sig.filter2 <- filterOnBulkProgenitors(e.sig.filter1,c("MEP.1","MEP.2"),c("CLP.1","CLP.2","GMP.1","GMP.2"),dataset)
+l.sig.filter2 <- filterOnBulkProgenitors(l.sig.filter1,c("CLP.1","CLP.2"),c("GMP.1","GMP.2","MEP.1","MEP.2"),dataset)
+
+```
+
+
+Remove genes which dont follow the trend at the level of RPPs
+```{r filter3, echo=FALSE, eval= TRUE}
+
+
+
+m.sig.filter3 <- intersect(m.sig.filter2, metabolic.signatures$lskVariable)
+e.sig.filter3 <- intersect(e.sig.filter2, metabolic.signatures$lskVariable)
+l.sig.filter3 <- intersect(l.sig.filter2, metabolic.signatures$lskVariable)
+
+
+```
+
+Remove genes which dont follow the trend at the level of RPPs
+```{r filter4, echo=FALSE, eval= TRUE}
+
+metabolic.signatures$sequential_lymphoid <- l.sig.filter3 
+metabolic.signatures$sequential_myeloid <- m.sig.filter3 
+metabolic.signatures$sequential_erythroid <- e.sig.filter3 
+
+save(metabolic.signatures,file = "genesets/geneset_Robjects/metabolic_signatures.Rda")
+
+```
+
+
+
+
+
+
+

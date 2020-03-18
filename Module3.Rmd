@@ -1,0 +1,278 @@
+---
+title: "Module 3: Machine learning and Network Analysis of Metabolic Identities"
+author: 
+- name: Jason Cosgrove (jason.cosgrove@curie.fr), Vincent Cabeli
+  affiliation:  Institut Curie, UMR168
+editor_options:
+  chunk_output_type: inline
+output:
+  html_document:
+    df_print: paged
+    number_sections: yes
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 18px;
+  }
+td {  /* Table  */
+  font-size: 8px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 10px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+
+
+# Introduction 
+In this analysis we develop a supervised learning classifier to predict lineage from metabolic state, and find out which genes are the most influential in this classification task. Lastly, we model gene-gene interactions using a causal network approach to understand how genes within our lineage specific metabolic signatures relate to each other.
+
+
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#clear the workspace and set the working directory
+rm(list = ls())
+
+#load in the packages that we need to run this analysis
+library(Seurat)
+library(xgboost)
+library(pROC)
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+source("helpermethods.R")
+
+
+dir.create("Results",showWarnings = F)
+dir.create("Results/Module3",showWarnings = F)
+
+#set the seed so we can reproduce the results
+set.seed(12345)
+
+```
+
+
+
+load in gene sets that are relevant to our research question
+```{r genesets}
+
+load("genesets/geneset_Robjects/metabolic_signatures.Rda")
+
+
+```
+
+
+
+# Classifier training
+
+In this section we train a classifier to predict lineage from gene expression profiles. Specifically, we train an xgboost model on just mature cells
+using k-folds cross validation. 
+
+```{r ClassifierTraining}
+
+
+#load in teh haemopedia dataset in the form of a seurat object
+load("datasets/Haemopedia/haem_seurat.Rda")
+
+
+interesting.genes <-  intersect(metabolic.signatures$lskVariable, metabolic.signatures$allGenesTested)
+
+interesting.genes <- intersect(interesting.genes, rownames(haem.seurat))
+#prep the inputs for xgboost, im tempted to retry with the progenitors included in the training just to see how that translates to the single cell
+mpponly <- FALSE #do you want to include RPPs in the training? if so set to true 
+data.withlineage <- prepData(interesting.genes,haem.seurat, mpponly)
+
+data.withlineage$lin <- droplevels(data.withlineage$lin)
+labels = data.withlineage$lin
+data = as.matrix(data.withlineage[,names(data.withlineage) != 'lin'])
+
+
+# convert the data matrix to an xgb.matrix object
+xgb_data = xgb.DMatrix(data, label=as.numeric(labels)-1)
+
+
+
+weights <- sapply(labels, calculateLineageWeights)
+
+
+
+# Train model with cross validation
+# See https://xgboost.readthedocs.io/en/latest/parameter.html for full list of parameters
+
+nfolds = 10   # CV folds, should be at least 10, that gives 8 cells or so per fold and makes sure that underrepresented classes (erythroid; 15 cells) are not completely in the testing folds
+nrounds = 12  # boosting iterations; was 20
+
+set.seed(178352323) #you must set the seed here, if you set in the beginning but the ordering of operations changes, then the randonm number generator will not be equivalent!
+
+cv = xgb.cv(data = data, label = as.numeric(labels)-1, nfold = nfolds,
+            params = list(subsample=0.3, colsample_bytree=0.3,colsample_bynode = 0.3,weight = weights),
+            nrounds = nrounds,
+            prediction = T, verbose = T,
+            metrics = 'merror', objective = "multi:softprob", num_class = length(unique(labels)),
+            callbacks = list(cb.cv.predict(save_models = TRUE)))
+
+```
+
+
+# Classifier Evaluation
+We then see how our classifier performs when we get it to predict the lineage of early lineage-biased bone marrow precursors.
+
+```{r ClassifierEvaluation}
+# xgboost actually otputs a dataframe where each column represents a lineage each row is an individual sample and each entry is the prob that the sample belongs to a given lineage
+xgb.preds = apply(cv$pred, 1, which.max) 
+table(xgb.preds, labels)
+
+roc_obj<- multiclass.roc(labels, xgb.preds)
+auc(roc_obj)
+
+#see how well we can predict the fate of precurosrs
+assessPerformanceOnPrecursors(haem.seurat,cv)
+
+save(cv,file = "Results/Module3/classifierModel.Rda")
+
+```
+
+# Calculate SHAPLEY Scores
+Using shapley scores quantify which genes are the most important in informing our classifiers lineage predictions. 
+
+```{r calculateSHAPLEYScores, eval = TRUE}
+
+
+# when you call xgbimportance on the model you get all genes used by the model
+all_features = lapply(cv$models, function(x) {xgb.importance(model = x, feature_names = colnames(data))}$Feature)
+all_features = unique(unlist(all_features))
+
+#create a dictionary that links lineage to its numeric entry in our classifier model
+labels.ordered <- colnames(table(xgb.preds, labels))
+dict <- vector(mode="list", length=length(labels.ordered))
+names(dict) <- 1:(length(labels.ordered))
+for(i in 1:length(labels.ordered)){dict[[i]] <- labels.ordered[i]}
+  
+SHAP_results <- calculateSHAPScores(all_features,dict,3,data)
+
+shapscores.summarised <- createSHAPSummary(SHAP_results)
+
+
+
+seq <- c(metabolic.signatures$sequential_erythroid,
+         metabolic.signatures$sequential_myeloid,
+         metabolic.signatures$sequential_lymphoid)
+
+#write the data out into a format that is compatible with miic
+write.csv(data.withlineage[,c(rownames(shapscores.summarised),"lin")],"Results/module3/machine_for_miic.csv")
+write.csv(data.withlineage[,c(seq,"lin")],"Results/module2/sequential_for_miic.csv")
+
+```
+
+
+# Summarise SHAPLEY Scores
+Using shapley scores quantify which genes are the most important in informing our classifiers lineage predictions. 
+
+```{r summariseSHAPLEYScores, eval = TRUE}
+
+
+shapscores.summarised <- data.frame(shapscores.summarised)
+shapscores.summarised.ordered <- shapscores.summarised[order(shapscores.summarised$SHAP_E,
+                                    shapscores.summarised$SHAP_M,
+                                    shapscores.summarised$SHAP_L,decreasing = T),]
+
+pheatmap(abs(shapscores.summarised.ordered),cluster_cols = FALSE,cluster_rows = F,
+         fontsize_row = 5,
+         colorRampPalette(rev(brewer.pal(n = 11, name ="RdYlBu")))(100))
+
+```
+
+# Cluster Informative Genes
+Using shapley scores quantify which genes are the most important in informing our classifiers lineage predictions. 
+
+
+```{r clusterSigs, eval = TRUE}
+#based on these genes we need to do kmeans clustering, we know how many liineages so we can set k. get the kmeans code from the rnaseq tutorial
+
+
+
+x <- AverageExpression(haem.seurat, features = rownames(shapscores.summarised),add.ident = "lineage")
+
+x <- x$RNA[,colnames(x$RNA) %in% c("haemopedia_Myeloid","haemopedia_Erythroid","haemopedia_Lymphoid")]
+
+clusters <- colnames(x)[apply(x,1,which.max)]
+names(clusters) <- rownames(shapscores.summarised)
+
+e.sig <- names(clusters[clusters == "haemopedia_Erythroid"])
+m.sig <- names(clusters[clusters == "haemopedia_Myeloid"])
+l.sig <- names(clusters[clusters == "haemopedia_Lymphoid"])
+
+
+
+#order the genes by the kmeans as this will be useful for visualisaßtion
+
+genes <- c(e.sig, m.sig,l.sig)
+
+#in the final pipeline we want this figure included
+cells <- colnames(haem.seurat)[haem.seurat@meta.data$lineage %ni% c("MPP", "Meg","RPP")]
+
+genes <- c("Abcb10","Tbxas1","Gsr",
+           "Atp6ap2","Idh1","Hk3","Tmem14c",
+           "Uqcr11","G6pdx","Hexa","Gpx1",
+           "Gstm5","Pkm","Atpif1","Slc14a1",
+           "Hk2","Neu1","Coxb2","Mgat4b",
+           "Pol2ra")
+
+x <- DoHeatmap(haem.seurat,features = genes, group.by = "lineage", cells = cells,disp.min = -1.5, disp.max = 1.5)
+
+x + theme(axis.text.y = element_text(size=5)) + scale_fill_gradient2(low = "white",mid = "light grey",
+     high = "dark blue")
+
+```
+
+# Generate Lineage Signatures
+Using shapley scores quantify which genes are the most important in informing our classifiers lineage predictions. 
+
+```{r featureSelection, eval = TRUE}
+dataset <- as.matrix(haem.seurat@assays$RNA@counts)
+
+#discard genes which dont follow the trend at the level of RPPs
+m.sig.filter2 <- filterOnBulkProgenitors(m.sig,c("GMP.1","GMP.2"),c("CLP.1","CLP.2","MEP.1","MEP.2"),dataset)
+e.sig.filter2 <- filterOnBulkProgenitors(e.sig,c("MEP.1","MEP.2"),c("CLP.1","CLP.2","GMP.1","GMP.2"),dataset)
+l.sig.filter2 <- filterOnBulkProgenitors(l.sig,c("CLP.1","CLP.2"),c("GMP.1","GMP.2","MEP.1","MEP.2"),dataset)
+
+
+metabolic.signatures$erythroid_machinelearning <- e.sig.filter2
+metabolic.signatures$myeloid_machinelearning <- m.sig.filter2
+metabolic.signatures$lymphoid_machinelearning <- l.sig.filter2
+
+
+save(metabolic.signatures,file = "genesets/geneset_Robjects/metabolic_signatures.Rda")
+
+
+```
+
