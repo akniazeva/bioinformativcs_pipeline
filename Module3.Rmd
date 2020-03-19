@@ -106,17 +106,20 @@ using k-folds cross validation.
 load("datasets/Haemopedia/haem_seurat.Rda")
 
 
+lskVariable100100 <- replicate(100, array(sample(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 100, replace = F )))
 
-AreaucDataTest <- array()
-PerfonamceDataTest <- array()
+testinggenes <- replicate(10, array(sample(rownames(haem.seurat)), 100, replace = F ))
 
-lskVariable100100 <- replicate(2, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 100, replace = F )))
 
-for (i in names(lskVariable100100)) {
 
-  interesting.genes <- lskVariable100100[[i]]
+for (i in 1:ncol(lskVariable100100)) {
+
+  interesting.genes <- lskVariable100100[,i]
 
   interesting.genes <- intersect(interesting.genes, rownames(haem.seurat))
+  
+  print(interesting.genes)
+  
 #prep the inputs for xgboost, im tempted to retry with the progenitors included in the training just to see how that translates to the single cell
   mpponly <- FALSE #do you want to include RPPs in the training? if so set to true 
   data.withlineage <- prepData(interesting.genes,haem.seurat, mpponly)
@@ -149,6 +152,30 @@ for (i in names(lskVariable100100)) {
               prediction = T, verbose = T,
               metrics = 'merror', objective = "multi:softprob", num_class = length(unique(labels)),
               callbacks = list(cb.cv.predict(save_models = TRUE)))
+  xgb.preds = apply(cv$pred, 1, which.max) 
+  
+  predictiontable <- table(xgb.preds, labels)
+  predictiontable
+  
+  roc_obj<- multiclass.roc(labels, xgb.preds)
+  
+  areauc <- auc(roc_obj)
+  
+  performance <- assessPerformanceOnPrecursors(haem.seurat,cv)
+  performance
+  
+  AreaucDataTest100 <- append(AreaucDataTest100, areauc)
+  
+  }
+  
+  AreaucDataTest100#resuts from 100 sets by 100 genes
+  
+
+  
+  
+
+  PerfonamceDataTest
+  perfo
   
   ```
   
@@ -173,10 +200,10 @@ for (i in names(lskVariable100100)) {
   performance <- assessPerformanceOnPrecursors(haem.seurat,cv)
   performance
   
-  AreaucDataTest <- append(numericAuc, i)
-  PerfonamceDataTest <- append(performance, i)
+  AreaucDataTest <- append(AreaucDataTest, areauc)
+  PerfonamceDataTest <- append(PerfonamceDataTes, performance)
 
-}
+
 
 AreaucDataTest
 
