@@ -15,6 +15,8 @@ output:
 ---
 ---
 
+
+
 <style type="text/css">
 
 body{ /* Normal  */
@@ -104,58 +106,85 @@ using k-folds cross validation.
 load("datasets/Haemopedia/haem_seurat.Rda")
 
 
-interesting.genes <-  intersect(metabolic.signatures$lskVariable, metabolic.signatures$allGenesTested)
 
-interesting.genes <- intersect(interesting.genes, rownames(haem.seurat))
+AreaucDataTest <- array()
+PerfonamceDataTest <- array()
+
+lskVariable100100 <- replicate(2, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 100, replace = F )))
+
+for (i in names(lskVariable100100)) {
+
+  interesting.genes <- lskVariable100100[[i]]
+
+  interesting.genes <- intersect(interesting.genes, rownames(haem.seurat))
 #prep the inputs for xgboost, im tempted to retry with the progenitors included in the training just to see how that translates to the single cell
-mpponly <- FALSE #do you want to include RPPs in the training? if so set to true 
-data.withlineage <- prepData(interesting.genes,haem.seurat, mpponly)
+  mpponly <- FALSE #do you want to include RPPs in the training? if so set to true 
+  data.withlineage <- prepData(interesting.genes,haem.seurat, mpponly)
 
-data.withlineage$lin <- droplevels(data.withlineage$lin)
-labels = data.withlineage$lin
-data = as.matrix(data.withlineage[,names(data.withlineage) != 'lin'])
-
-
-# convert the data matrix to an xgb.matrix object
-xgb_data = xgb.DMatrix(data, label=as.numeric(labels)-1)
-
-
-
-weights <- sapply(labels, calculateLineageWeights)
-
-
-
-# Train model with cross validation
-# See https://xgboost.readthedocs.io/en/latest/parameter.html for full list of parameters
-
-nfolds = 10   # CV folds, should be at least 10, that gives 8 cells or so per fold and makes sure that underrepresented classes (erythroid; 15 cells) are not completely in the testing folds
-nrounds = 12  # boosting iterations; was 20
-
-set.seed(178352323) #you must set the seed here, if you set in the beginning but the ordering of operations changes, then the randonm number generator will not be equivalent!
-
-cv = xgb.cv(data = data, label = as.numeric(labels)-1, nfold = nfolds,
-            params = list(subsample=0.3, colsample_bytree=0.3,colsample_bynode = 0.3,weight = weights),
-            nrounds = nrounds,
-            prediction = T, verbose = T,
-            metrics = 'merror', objective = "multi:softprob", num_class = length(unique(labels)),
-            callbacks = list(cb.cv.predict(save_models = TRUE)))
-
-```
-
-
-# Classifier Evaluation
-We then see how our classifier performs when we get it to predict the lineage of early lineage-biased bone marrow precursors.
-
-```{r ClassifierEvaluation}
-# xgboost actually otputs a dataframe where each column represents a lineage each row is an individual sample and each entry is the prob that the sample belongs to a given lineage
-xgb.preds = apply(cv$pred, 1, which.max) 
-table(xgb.preds, labels)
-
-roc_obj<- multiclass.roc(labels, xgb.preds)
-auc(roc_obj)
+  data.withlineage$lin <- droplevels(data.withlineage$lin)
+  labels = data.withlineage$lin
+  data = as.matrix(data.withlineage[,names(data.withlineage) != 'lin'])
+  
+  
+  # convert the data matrix to an xgb.matrix object
+  xgb_data = xgb.DMatrix(data, label=as.numeric(labels)-1)
+  
+  
+  
+  weights <- sapply(labels, calculateLineageWeights)
+  
+  
+  
+  # Train model with cross validation
+  # See https://xgboost.readthedocs.io/en/latest/parameter.html for full list of parameters
+  
+  nfolds = 10   # CV folds, should be at least 10, that gives 8 cells or so per fold and makes sure that underrepresented classes (erythroid; 15 cells) are not completely in the testing folds
+  nrounds = 12  # boosting iterations; was 20
+  
+  set.seed(178352323) #you must set the seed here, if you set in the beginning but the ordering of operations changes, then the randonm number generator will not be equivalent!
+  
+  cv = xgb.cv(data = data, label = as.numeric(labels)-1, nfold = nfolds,
+              params = list(subsample=0.3, colsample_bytree=0.3,colsample_bynode = 0.3,weight = weights),
+              nrounds = nrounds,
+              prediction = T, verbose = T,
+              metrics = 'merror', objective = "multi:softprob", num_class = length(unique(labels)),
+              callbacks = list(cb.cv.predict(save_models = TRUE)))
+  
+  ```
+  
+  
+  # Classifier Evaluation
+  We then see how our classifier performs when we get it to predict the lineage of early lineage-biased bone marrow precursors.
+  
+  ```{r ClassifierEvaluation}
+  # xgboost actually otputs a dataframe where each column represents a lineage each row is an individual sample and each entry is the prob that the sample belongs to a given lineage
+  xgb.preds = apply(cv$pred, 1, which.max) 
+  
+  predictiontable <- table(xgb.preds, labels)
+  predictiontable
+  
+  roc_obj<- multiclass.roc(labels, xgb.preds)
+  
+  areauc <- auc(roc_obj)
+  numericAuc <- as.numeric(areauc)
 
 #see how well we can predict the fate of precurosrs
-assessPerformanceOnPrecursors(haem.seurat,cv)
+
+  performance <- assessPerformanceOnPrecursors(haem.seurat,cv)
+  performance
+  
+  AreaucDataTest <- append(numericAuc, i)
+  PerfonamceDataTest <- append(performance, i)
+
+}
+
+AreaucDataTest
+
+PerfonamceDataTest
+
+write.csv(TableDataTest, file = "Results/Module3/classifierModeltestareauc.csv", append = T, row.names = T, col.names = T, sep = ",")
+
+
 
 save(cv,file = "Results/Module3/classifierModel.Rda")
 
