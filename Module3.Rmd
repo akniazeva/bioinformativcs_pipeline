@@ -106,10 +106,13 @@ using k-folds cross validation.
 load("datasets/Haemopedia/haem_seurat.Rda")
 
 
-lskVariable100100 <- replicate(100, array(sample(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 100, replace = F )))
+lskVariable100100 <- replicate(100, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 100, replace = F )))
 
-testinggenes <- replicate(10, array(sample(rownames(haem.seurat)), 100, replace = F ))
+testingallgenes <- replicate(100, sample(rownames(haem.seurat), 100, replace = F ))
 
+AreaucDataTest100 <- array()
+
+AreaucDataTestallgenes <- array()
 
 
 for (i in 1:ncol(lskVariable100100)) {
@@ -168,14 +171,20 @@ for (i in 1:ncol(lskVariable100100)) {
   
   }
   
-  AreaucDataTest100#resuts from 100 sets by 100 genes
+AreaucDataTestallgenes#results from 100 sets by 100 gens in all genes in haem.seurat dataset
+  
+AreaucDataTest100#resuts from 100 sets by 100 genes in intersect of lsk and metabolic genes
+
+
+table(AreaucDataTestallgenes)[names(table(AreaucDataTestallgenes)) == 1]#count the number of auc == 1, ==7
+
+table(AreaucDataTest100)[names(table(AreaucDataTest100)) ==1] # count the number of auc == 1, ==26
+  
+write.csv(AreaucDataTestallgenes, file = "Results/Module3/classifierModelAreaucDataTestallgenes.csv", append = T, row.names = T, col.names = T, sep = ",")
+
+write.csv(AreaucDataTest100, file = "Results/Module3/classifierModelAreaucDataTest100.csv", append = T, row.names = T, col.names = T, sep = ",")
   
 
-  
-  
-
-  PerfonamceDataTest
-  perfo
   
   ```
   
