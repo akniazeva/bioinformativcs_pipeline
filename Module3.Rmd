@@ -115,9 +115,9 @@ AreaucDataTest100 <- array()
 AreaucDataTestallgenes <- array()
 
 
-for (i in 1:ncol(lskVariable100100)) {
+for (i in 1:ncol(testingallgenes)) {
 
-  interesting.genes <- lskVariable100100[,i]
+  interesting.genes <- testingallgenes[,i]
 
   interesting.genes <- intersect(interesting.genes, rownames(haem.seurat))
   
@@ -167,7 +167,7 @@ for (i in 1:ncol(lskVariable100100)) {
   performance <- assessPerformanceOnPrecursors(haem.seurat,cv)
   performance
   
-  AreaucDataTest100 <- append(AreaucDataTest100, areauc)
+  AreaucDataTestallgenes <- append(AreaucDataTestallgenes, areauc)
   
   }
   
@@ -176,17 +176,34 @@ AreaucDataTestallgenes#results from 100 sets by 100 gens in all genes in haem.se
 AreaucDataTest100#resuts from 100 sets by 100 genes in intersect of lsk and metabolic genes
 
 
-table(AreaucDataTestallgenes)[names(table(AreaucDataTestallgenes)) == 1]#count the number of auc == 1, ==7
+table(AreaucDataTestallgenes)[names(table(AreaucDataTestallgenes)) == 1]#count the number of auc == 1, ==6
 
-table(AreaucDataTest100)[names(table(AreaucDataTest100)) ==1] # count the number of auc == 1, ==26
+table(AreaucDataTest100)[names(table(AreaucDataTest100)) ==1] # count the number of auc == 1, ==35
   
 write.csv(AreaucDataTestallgenes, file = "Results/Module3/classifierModelAreaucDataTestallgenes.csv", append = T, row.names = T, col.names = T, sep = ",")
 
 write.csv(AreaucDataTest100, file = "Results/Module3/classifierModelAreaucDataTest100.csv", append = T, row.names = T, col.names = T, sep = ",")
-  
+
+library(ggpubr)
+
+
+
+AllGenesplot <- data.frame(auc = AreaucDataTestallgenes[2:101], geneset='Allgenes')
+
+LSKplot <- data.frame(auc = AreaucDataTest100[2:101], geneset='LSKgenes')
+
+plotdataAucTest <- rbind(AllGenesplot, LSKplot )
+
+aucboxplot <- ggplot(plotdataAucTest, aes(x = geneset, y = auc)) + geom_boxplot() 
+
+aucboxplot +stat_compare_means()
+
+png(filename="your/file/location/name.png")
+plot(fit)
+dev.off()
 
   
-  ```
+```
   
   
   # Classifier Evaluation
