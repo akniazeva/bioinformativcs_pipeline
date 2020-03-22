@@ -108,16 +108,28 @@ load("datasets/Haemopedia/haem_seurat.Rda")
 
 lskVariable100100 <- replicate(100, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 100, replace = F )))
 
+lskVariable10010 <- replicate(100, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 10, replace = F )))
+
+lskVariable10025 <- replicate(100, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 25, replace = F )))
+
+lskVariable10050 <- replicate(100, array(sample(intersect(metabolic.signatures$lskVariable,metabolic.signatures$allGenesTested), 50, replace = F )))
+
 testingallgenes <- replicate(100, sample(rownames(haem.seurat), 100, replace = F ))
 
 AreaucDataTest100 <- array()
 
 AreaucDataTestallgenes <- array()
 
+AreaucDataTestlsk10 <- array()
 
-for (i in 1:ncol(testingallgenes)) {
+AreaucDataTestlsk25 <- array()
 
-  interesting.genes <- testingallgenes[,i]
+AreaucDataTestlsk50 <- array()
+
+
+for (i in 1:ncol(lskVariable10050)) {
+
+  interesting.genes <- lskVariable10050[,i]
 
   interesting.genes <- intersect(interesting.genes, rownames(haem.seurat))
   
@@ -167,13 +179,19 @@ for (i in 1:ncol(testingallgenes)) {
   performance <- assessPerformanceOnPrecursors(haem.seurat,cv)
   performance
   
-  AreaucDataTestallgenes <- append(AreaucDataTestallgenes, areauc)
+  AreaucDataTestlsk50 <- append(AreaucDataTestlsk50, areauc)
   
   }
   
 AreaucDataTestallgenes#results from 100 sets by 100 gens in all genes in haem.seurat dataset
   
 AreaucDataTest100#resuts from 100 sets by 100 genes in intersect of lsk and metabolic genes
+
+AreaucDataTestlsk10#results from 100 sets by 10 gens in intersect of lsk and metabolic genes
+
+AreaucDataTestlsk25#results from 100 sets by 25 gens in intersect of lsk and metabolic genes
+
+AreaucDataTestlsk50#results from 100 sets by 50 gens in intersect of lsk and metabolic genes
 
 
 table(AreaucDataTestallgenes)[names(table(AreaucDataTestallgenes)) == 1]#count the number of auc == 1, ==6
@@ -184,19 +202,34 @@ write.csv(AreaucDataTestallgenes, file = "Results/Module3/classifierModelAreaucD
 
 write.csv(AreaucDataTest100, file = "Results/Module3/classifierModelAreaucDataTest100.csv", append = T, row.names = T, col.names = T, sep = ",")
 
+write.csv(AreaucDataTestlsk10, file = "Results/Module3/classifierModelAreaucDataTestlsk10.csv", append = T, row.names = T, col.names = T, sep = ",")
+
+write.csv(AreaucDataTestlsk25, file = "Results/Module3/classifierModelAreaucDataTestlsk25.csv", append = T, row.names = T, col.names = T, sep = ",")
+
+write.csv(AreaucDataTestlsk50, file = "Results/Module3/classifierModelAreaucDataTestlsk50.csv", append = T, row.names = T, col.names = T, sep = ",")
+
 library(ggpubr)
 
 
 
 AllGenesplot <- data.frame(auc = AreaucDataTestallgenes[2:101], geneset='Allgenes')
 
-LSKplot <- data.frame(auc = AreaucDataTest100[2:101], geneset='LSKgenes')
+LSK100plot <- data.frame(auc = AreaucDataTest100[2:101], geneset='100LSKgenes')
 
-plotdataAucTest <- rbind(AllGenesplot, LSKplot )
+LSK10plot <- data.frame(auc = AreaucDataTestlsk10[2:101], geneset='10LSKgenes')
+
+LSK25plot <- data.frame(auc = AreaucDataTestlsk25[2:101], geneset='25LSKgenes')
+
+LSK50plot <- data.frame(auc = AreaucDataTestlsk50[2:101], geneset='50LSKgenes')
+
+plotdataAucTest <- rbind(AllGenesplot, LSK100plot, LSK10plot, LSK25plot, LSK50plot )
 
 aucboxplot <- ggplot(plotdataAucTest, aes(x = geneset, y = auc)) + geom_boxplot() 
 
-aucboxplot +stat_compare_means()
+aucboxplot + stat_compare_means(comparisons = list(c("Allgenes", "100LSKgenes"), c("Allgenes", "10LSKgenes"), c("Allgenes", "25LSKgenes") , c("Allgenes", "50LSKgenes" )))
+
+aucboxplot
+
 
 png(filename="your/file/location/name.png")
 plot(fit)
