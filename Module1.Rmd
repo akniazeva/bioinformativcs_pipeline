@@ -62,15 +62,20 @@ rm(list=ls())
 #load in the packages that we need to run this analysis
 library(Seurat)
 library(dplyr)
-library(edge)
+library(edgeR)
 library(limma)
 library(Glimma)
 library(DESeq2)
 library(cowplot)
 library(ggplot2)
 
+
 source("helpermethods.R")
 load("genesets/geneset_Robjects/metabolic_signatures.Rda")
+
+all.reg.immuno.genes <- read.csv("C:/Users/acer/Desktop/immuno_genes.csv", fileEncoding = "UTF-16") #regulatory immune genes dataset form GO term
+
+all.immuno.genes <- read.csv("C:/Users/acer/Desktop/all_immuno_genes.csv", fileEncoding = "UTF-16") #all immune genes from GO terms
 
 #set the seed so we can reproduce the results
 set.seed(12345)
@@ -139,9 +144,12 @@ haem.seurat <- RunPCA(object = haem.seurat, npcs = 50, verbose = FALSE)
 haem.seurat  <- RunUMAP(object = haem.seurat, reduction = "pca", dims = 1:50, min.dist = 0.4, spread = 0.4,verbose = FALSE)
 
 #visualise pca based dimensionality reduction vs. umap, this is done on all genes!
-p1 <- DimPlot(object = haem.seurat, reduction = "pca", group.by = "lineage",label.size = 2,  label = F, repel = T)  
-p2 <- DimPlot(object = haem.seurat, reduction = "umap", group.by = "lineage",label.size = 2,  label = T, repel = T)  
+p1 <- DimPlot(object = haem.seurat, reduction = "pca", group.by = "lineage", pt.size = 1.5, label.size = 4,  label = T, repel = T) 
+p2 <- DimPlot(object = haem.seurat, reduction = "umap", group.by = "lineage", pt.size = 1.7, label.size = 4,  label = T, repel = T)
+
+p1
 plot_grid(p1, p2)
+
 
 #save the seurat object to file for later analysis if we need it.
 save(haem.seurat, file = "datasets/Haemopedia/haem_seurat.Rda")
@@ -174,10 +182,9 @@ Lets visualise our differentially expressed genes using a volcano plot. Overlay 
 ```{r pressure2}
 
 #specify the contrast matrix that we want to use for our analysis
-cont.matrix <- makeContrasts( E = Erythroid - (Myeloid + Lymphoid) / 2 ,
-                              M = Myeloid - (Erythroid +Lymphoid)  / 2 ,
-                              L = Lymphoid - (Myeloid + Erythroid) / 2 ,
-                              levels = design )
+cont.matrix <- makeContrasts( E = Erythroid - Myeloid,
+                              M = Myeloid - Erythroid,
+                              levels = design)
 
 #Now that we have the voom transformed data we can use limma to test for differential expression. First we fit a linear model for each gene using the lmFit function in limma. lmFit needs the voom object and the design matrix that we have already specified, which is stored within the voom object.
 fit <- lmFit(v)
@@ -193,10 +200,26 @@ summa.fit <- decideTests(fit.cont)
 summary(summa.fit)
 
 #set the contrast names for when we plot the results
-contrast.names <- c("E","M","L")
+contrast.names <- c("E","M")
 
 # get all metabolic genes
 metabolic.genes <- c(metabolic.signatures$allGenesTested)
+
+#get regulatory immune genes
+
+reg.immuno.genes <- (all.reg.immuno.genes[,2])
+
+reg.immuno <- intersect(rownames(haem.seurat),reg.immuno.genes)
+
+reg_test_immuno <- intersect(reg.immuno, metabolic.signatures$allGenesTested)
+
+#get all immuno genes
+
+immuno.genes <- (all.immuno.genes[,2])
+
+immuno <- intersect(rownames(haem.seurat), immuno.genes) #the same number of genes in after intersect with seurat dataset as with immuno regulatory genes
+
+
 
 # do volcano plots for each lineage, overlaying the expression of all metabolic genes
 res.E <- topTable(fit.cont, coef=1, number=nrow(v$E), adjust.method="BH")
@@ -204,6 +227,28 @@ res.E <- res.E[order(res.E$adj.P.Val),]
 nsign.E <- length(which(res.E$adj.P.Val < 0.05))
 nsignfc.E <- length(which(res.E$adj.P.Val < 0.05 & abs(res.E$logFC) > 1))
 LimmaVolcano(res.E)
+
+
+limma.volcano.immuno <- function(res, main="", fct=2, pt=0.05){
+  res$sign <- 0
+  res$sign[which(res$adj.P.Val < pt & abs(res$logFC) > fct)] <- 1
+  
+  res$sign[which(res$adj.P.Val < pt & abs(res$logFC) > fct & res$genes %in% metabolic.genes)] <- 2
+  
+  res$sign[which(res$adj.P.Val < pt & abs(res$logFC) > fct & res$genes %in% reg_test_immuno)] <- 3
+  p <- ggplot(data=res, aes(x=logFC, y=-log10(adj.P.Val), colour=as.factor(sign))) + geom_point( size=2) +
+    
+    scale_color_manual(name="", values=c("4" = "orange","3" = "blue" ,"2" = "red","1"=
+                                           rgb(80/255,80/255, 80/255,0.2), "0"=rgb(220/255,220/255, 220/255,0.2))) +  
+    ggtitle(paste0("Volcano Plot - Limma immuno", main)) +
+    theme(legend.position = "none") + xlim(-12,12) + 
+    xlab("log2 fold change") + ylab("-log10 adj pvalue") + 
+    geom_vline(xintercept=c(-fct, fct), linetype=2) + 
+    geom_hline(yintercept=-log10(pt), linetype=2)
+  p
+}
+
+limma.volcano.immuno(res.E)
 
 res.E.filtered <- res.E[res.E$adj.P.Val < 0.05,]
 
@@ -213,17 +258,11 @@ nsign.M <- length(which(res.M$adj.P.Val < 0.05))
 nsignfc.M <- length(which(res.M$adj.P.Val < 0.05 & abs(res.M$logFC) > 1))
 LimmaVolcano(res.M)
 
+limma.volcano.immuno(res.M)
+
 res.M.filtered <- res.M[res.M$adj.P.Val < 0.05,]
 
-res.L <- topTable(fit.cont, coef=3, number=nrow(v$E), adjust.method="BH")
-res.L <- res.L[order(res.L$adj.P.Val),]
-nsign.L <- length(which(res.L$adj.P.Val < 0.05))
-nsignfc.L <- length(which(res.L$adj.P.Val < 0.05 & abs(res.L$logFC) > 1))
-LimmaVolcano(res.L)
 
-res.L.filtered <- res.L[res.L$adj.P.Val < 0.05,]
-
-write.csv(res.L.filtered, "Results/Module1/DEGs_L.csv")
 write.csv(res.E.filtered, "Results/Module1/DEGs_E.csv")
 write.csv(res.M.filtered, "Results/Module1/DEGs_M.csv")
 
