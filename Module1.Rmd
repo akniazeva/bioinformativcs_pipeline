@@ -77,10 +77,10 @@ source("helpermethods.R")
 load("genesets/geneset_Robjects/metabolic_signatures.Rda")
 
 #packages for pathfinder
-BiocManager::install("KEGGREST")
-BiocManager::install("KEGGgraph")
-BiocManager::install("AnnotationDbi")
-BiocManager::install("org.Hs.eg.db")
+#BiocManager::install("KEGGREST")
+#BiocManager::install("KEGGgraph")
+#BiocManager::install("AnnotationDbi")
+#BiocManager::install("org.Hs.eg.db")
 
 
 all.reg.immuno.genes <- read.csv("C:/Users/acer/Desktop/immuno_genes.csv", fileEncoding = "UTF-16") #regulatory immune genes dataset form GO term
@@ -117,7 +117,17 @@ cells.to.remove <- c("GCB.1","GCB.2","SplPlsB.1" ,
                       "EffCD4T.2","MemCD4T.2",  
                       "MemCD8T.2","MemCD8T.1",
                       "MemCD4T.1", "pDC.1", "pDC.2",
-                      "MegTPO.1",  "MegTPO.2")
+                      "MegTPO.1",  "MegTPO.2", 
+                      "B1Pt.1", "B1Pt.2", "BMPlsC.1", "Fob.1",                       
+                      "Fob.2", "GCB.1", "GCB.2", "MZB.1",                           
+                      "MZB.2", "PtB.1", "PtB.2", "SplPlsB.1",
+                      "SplPlsC.1", "SplPlsC.2", "SplPlsC.3", 
+                      "NK.1", "NK.2", "CLP.1", "CLP.2", 
+                      "GMP_IRF8hi.1", "GMP_IRF8hi.2",
+                      "GMP_IRF8lo.1", "GMP_IRF8lo.2",
+                      "CD4T.1", "CD4T.2", "CD8T.1", "CD8T.2",
+                      "NveCD4T.1", "NveCD4T.2", "NveCd8T.1",
+                      "NveCd8T.2", "RegT.1", "RegT.2")
 
 #filter out lowly expressed genes, and also cells that we are not interested in. 
 haemopedia.filtered <- filterData(haemopedia,cells.to.remove)
@@ -290,24 +300,24 @@ res.M.filtered <- res.M[res.M$adj.P.Val < 0.05 & res.M$logFC > 0,]
 
 genes <- c(res.M.filtered$gene[1:20])
 
-coolmap(v[genes,])
+coolmap(v[genes,], cexRow=0.5, cexCol=0.5)
 
 #heatmap for E filtered genes
 res.E.filtered <- res.E[res.E$adj.P.Val < 0.05 & res.E$logFC > 0,]
 
 genes <- c(res.E.filtered$gene[1:20])
 
-coolmap(v[genes,])
+coolmap(v[genes,],cexRow=0.5, cexCol=0.5)
 
 
 
 #heatmap of immune filtered genes in E?
 
-test.subset.heatmap <- test.subset[test.subset$adj.P.Val < 0.05 & test.subset$logFC > 0,]
+test.subset.heatmap <- test.subset.E[test.subset.E$adj.P.Val < 0.05 & test.subset.E$logFC > 0,]
 
 genes.E.immuno <- c(test.subset.heatmap$gene[1:30])
 
-coolmap(v[genes.E.immuno,], cexRow=0.5)
+coolmap(v[genes.E.immuno,], cexRow=0.5, cexCol=0.5)
 
 #heatmap of immune filtered genes M
 
@@ -315,15 +325,26 @@ test.subset.M.heatmap <- test.subset.M[test.subset.M$adj.P.Val < 0.05 & test.sub
 
 genes.M.immuno <- c(test.subset.M.heatmap$gene[1:30])
 
-coolmap(v[genes.M.immuno,], cexRow=0.5)
+coolmap(v[genes.M.immuno,], cexRow=0.5, cexCol=0.5)
 
 
-test.dataset.E.go <- data.frame(select(res.E, genes, logFC, adj.P.Val)) 
+# pathway enrichment analysis using pathfinder in Erithroid
 
-run_pathfindR(test.dataset.E.go, gene_sets = "GO-All", p_val_threshold = 0.05, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop" )
+#prepare dataset with 3 columns, gene names, log FC, adj.P.val
+test.dataset.E.go <- data.frame(select(res.E, genes, logFC, adj.P.Val))
+
+#select only upregulated genes in erithroid
+test.dataset.E.go <- test.dataset.E.go %>% filter(logFC > 0)
+
+
+
+run_pathfindR(test.dataset.E.go[1:500,], gene_sets = "GO-All", p_val_threshold = 0.05, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop" )
 
 write.csv(res.E.filtered, "Results/Module1/DEGs_E.csv")
 write.csv(res.M.filtered, "Results/Module1/DEGs_M.csv")
+
+
+
 
 
  ```
