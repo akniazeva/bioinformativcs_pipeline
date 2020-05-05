@@ -68,14 +68,19 @@ library(Glimma)
 library(DESeq2)
 library(cowplot)
 library(ggplot2)
-#packages for volcano plot
+#package for volcano plot
 library(ggrepel)
-library(airway)
-library(magrittr)
-library(EnhancedVolcano)
+#package for pathway analysis
+library(pathfindR)
 
 source("helpermethods.R")
 load("genesets/geneset_Robjects/metabolic_signatures.Rda")
+
+#packages for pathfinder
+BiocManager::install("KEGGREST")
+BiocManager::install("KEGGgraph")
+BiocManager::install("AnnotationDbi")
+BiocManager::install("org.Hs.eg.db")
 
 
 all.reg.immuno.genes <- read.csv("C:/Users/acer/Desktop/immuno_genes.csv", fileEncoding = "UTF-16") #regulatory immune genes dataset form GO term
@@ -124,6 +129,7 @@ lin <- performLineageAnnotation(haemopedia.filtered)
 condition <-factor(lin)
 design <- model.matrix( ~ 0 + condition)
 colnames(design) <- levels( condition )
+
 
 #calculate normalisation factors for each cell type
 y <- calcNormFactors(haemopedia.filtered) 
@@ -220,7 +226,6 @@ reg.immuno.genes <- (all.reg.immuno.genes[,2])
 
 reg.immuno <- intersect(rownames(haem.seurat),reg.immuno.genes)
 
-heatmap()
 
 #get all immuno genes
 
@@ -239,7 +244,9 @@ LimmaVolcano(res.E)
 #create dataset for labeling immune regulation genes in volcano plot
 test <- data.frame(genes = reg.immuno)
 
-test.subset <- subset(res.E,genes %in% test$genes)
+test.subset.E <- subset(res.E,genes %in% test$genes)
+
+test.subset.M <- subset(res.M,genes %in% test$genes)
 
 #volcano plot with labels
 limma.volcano.immuno <- function(res, main="", fct=2, pt=0.05){
@@ -259,31 +266,10 @@ limma.volcano.immuno <- function(res, main="", fct=2, pt=0.05){
     xlab("log2 fold change") + ylab("-log10 adj pvalue") + 
     geom_vline(xintercept=c(-fct, fct), linetype=2) + 
     geom_hline(yintercept=-log10(pt), linetype=2)+
-     (data=filter(res.fitered, -log10(adj.P.Val)>20), aes(label=genes))
+    geom_text_repel(data=filter(res.fitered, -log10(adj.P.Val)>20), aes(label=genes))
   p
 }
 
-
-
-EnhancedVolcano(res.E,
-    lab = rownames(res.E),
-    x = 'logFC',
-    y = 'P.Value',
-    xlim = c(-12, 12))
-res <- res.E
-
-
-EnhancedVolcano(res.E,
-    lab = rownames(res.E),
-    x = 'logFC',
-    y = 'P.Value',
-    xlim = c(-12, 12),
-    ylim = c(0, 50),
-    title = 'Test',
-    pCutoff = 10e-16,
-    FCcutoff = 1.5,
-    pointSize = 3.0,
-    labSize = 3.0)
 
 limma.volcano.immuno(res.E)
 
@@ -299,6 +285,42 @@ limma.volcano.immuno(res.M)
 
 res.M.filtered <- res.M[res.M$adj.P.Val < 0.05,]
 
+#heatmap for M filtered genes
+res.M.filtered <- res.M[res.M$adj.P.Val < 0.05 & res.M$logFC > 0,]
+
+genes <- c(res.M.filtered$gene[1:20])
+
+coolmap(v[genes,])
+
+#heatmap for E filtered genes
+res.E.filtered <- res.E[res.E$adj.P.Val < 0.05 & res.E$logFC > 0,]
+
+genes <- c(res.E.filtered$gene[1:20])
+
+coolmap(v[genes,])
+
+
+
+#heatmap of immune filtered genes in E?
+
+test.subset.heatmap <- test.subset[test.subset$adj.P.Val < 0.05 & test.subset$logFC > 0,]
+
+genes.E.immuno <- c(test.subset.heatmap$gene[1:30])
+
+coolmap(v[genes.E.immuno,], cexRow=0.5)
+
+#heatmap of immune filtered genes M
+
+test.subset.M.heatmap <- test.subset.M[test.subset.M$adj.P.Val < 0.05 & test.subset.M$logFC > 0,]
+
+genes.M.immuno <- c(test.subset.M.heatmap$gene[1:30])
+
+coolmap(v[genes.M.immuno,], cexRow=0.5)
+
+
+test.dataset.E.go <- data.frame(select(res.E, genes, logFC, adj.P.Val)) 
+
+run_pathfindR(test.dataset.E.go, gene_sets = "GO-All", p_val_threshold = 0.05, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop" )
 
 write.csv(res.E.filtered, "Results/Module1/DEGs_E.csv")
 write.csv(res.M.filtered, "Results/Module1/DEGs_M.csv")
@@ -330,8 +352,16 @@ for(i in 1:length(contrast.names)){
   write.csv(kegg, paste( "Results/Module1/" ,contrast.names[i],"KEGGA_KEGG_pathways.csv",sep="_"))
 }
 
-head(go)
-kegg
+
+
+go.table <- read.csv("Results/Module1/_E_GOANA_GO_pathways.csv")
+
+go.table.pval.ordered <- go.table[with(go.table, order("P.Up")), ]
+
+go.table.pval.ordered <-go.table %>% arrange(desc(-FDR.up))
+
+barplot(go.table.pval.ordered$FDR.up[1:10])
+
 ```
 
 
