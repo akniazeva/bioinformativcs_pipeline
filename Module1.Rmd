@@ -58,7 +58,6 @@ In this analysis we analyse the haemopedia bulk RNAseq database (1) to identify 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-rm(list=ls())
 #load in the packages that we need to run this analysis
 library(Seurat)
 library(dplyr)
@@ -72,6 +71,12 @@ library(ggplot2)
 library(ggrepel)
 #package for pathway analysis
 library(pathfindR)
+#package for visualisation of pathway enrichment data
+#library(enrichplot)
+#library(GOplot)
+
+#package for GO clustering
+library(GO.db)
 
 source("helpermethods.R")
 load("genesets/geneset_Robjects/metabolic_signatures.Rda")
@@ -82,10 +87,24 @@ load("genesets/geneset_Robjects/metabolic_signatures.Rda")
 #BiocManager::install("AnnotationDbi")
 #BiocManager::install("org.Hs.eg.db")
 
+BiocManager::install("RamiGO")
+
+library("RamiGO")
+
 
 all.reg.immuno.genes <- read.csv("C:/Users/acer/Desktop/immuno_genes.csv", fileEncoding = "UTF-16") #regulatory immune genes dataset form GO term
 
 all.immuno.genes <- read.csv("C:/Users/acer/Desktop/all_immuno_genes.csv", fileEncoding = "UTF-16") #all immune genes from GO terms
+
+#all metabolic genes from GO terms for pathfindR metabolic pathway selection
+all.metabolic.genes.GO <- read.csv("C:/Users/acer/Desktop/GO_term_summary_metabolic.csv", fileEncoding = "UTF-16")
+
+#Lypid, gycolisis and amino acid genes related to metabolism from GO.terms for pathway selection in pathfindR
+all.lypid.genes.GO <- read.csv("C:/Users/acer/Desktop/GO_term_summary_metabolic_lypid.csv", fileEncoding = "UTF-16")
+
+all.glyco.genes.GO <- read.csv("C:/Users/acer/Desktop/GO_term_summary_metabolic glyco.csv", fileEncoding = "UTF-16")
+
+all.amino.acid.genes.GO <- read.csv("C:/Users/acer/Desktop/GO_term_summary_metabolic_amino_acid.csv", fileEncoding = "UTF-16")
 
 #set the seed so we can reproduce the results
 set.seed(12345)
@@ -243,7 +262,7 @@ immuno.genes <- (all.immuno.genes[,2])
 
 immuno <- intersect(rownames(haem.seurat), immuno.genes)
 
-# do volcano plots for each lineage, overlaying the expression of all metabolic genes
+# do volcano plots for E lineage, overlaying the expression of all metabolic genes
 res.E <- topTable(fit.cont, coef=1, number=nrow(v$E), adjust.method="BH")
 res.E <- res.E[order(res.E$adj.P.Val),]
 nsign.E <- length(which(res.E$adj.P.Val < 0.05))
@@ -251,14 +270,13 @@ nsignfc.E <- length(which(res.E$adj.P.Val < 0.05 & abs(res.E$logFC) > 1))
 LimmaVolcano(res.E)
 
 
-#create dataset for labeling immune regulation genes in volcano plot
+#create E dataset for labeling immune regulation genes in volcano plot
 test <- data.frame(genes = reg.immuno)
 
 test.subset.E <- subset(res.E,genes %in% test$genes)
 
-test.subset.M <- subset(res.M,genes %in% test$genes)
 
-#volcano plot with labels
+#volcano plot with labels for immune genes
 limma.volcano.immuno <- function(res, main="", fct=2, pt=0.05){
   res$sign <- 0
   res$sign[which(res$adj.P.Val < pt & abs(res$logFC) > fct)] <- 1
@@ -285,11 +303,16 @@ limma.volcano.immuno(res.E)
 
 res.E.filtered <- res.E[res.E$adj.P.Val < 0.05,]
 
+
+# do volcano plots for M lineage, overlaying the expression of all metabolic genes
 res.M <- topTable(fit.cont, coef=2, number=nrow(v$E), adjust.method="BH")
 res.M <- res.M[order(res.M$adj.P.Val),]
 nsign.M <- length(which(res.M$adj.P.Val < 0.05))
 nsignfc.M <- length(which(res.M$adj.P.Val < 0.05 & abs(res.M$logFC) > 1))
 LimmaVolcano(res.M)
+
+#create M dataset for labeling immune regulation genes in volcano plot
+test.subset.M <- subset(res.M,genes %in% test$genes)
 
 limma.volcano.immuno(res.M)
 
@@ -310,14 +333,17 @@ genes <- c(res.E.filtered$gene[1:20])
 coolmap(v[genes,],cexRow=0.5, cexCol=0.5)
 
 
-
-#heatmap of immune filtered genes in E?
+#heatmap of immune filtered genes in E
 
 test.subset.heatmap <- test.subset.E[test.subset.E$adj.P.Val < 0.05 & test.subset.E$logFC > 0,]
 
 genes.E.immuno <- c(test.subset.heatmap$gene[1:30])
 
-coolmap(v[genes.E.immuno,], cexRow=0.5, cexCol=0.5)
+E.immuno.heatmap <- coolmap(v[genes.E.immuno,], cexRow=0.5, cexCol=0.5)
+
+E.immuno.heatmap
+
+
 
 #heatmap of immune filtered genes M
 
@@ -328,7 +354,8 @@ genes.M.immuno <- c(test.subset.M.heatmap$gene[1:30])
 coolmap(v[genes.M.immuno,], cexRow=0.5, cexCol=0.5)
 
 
-# pathway enrichment analysis using pathfinder in Erithroid
+
+# pathway enrichment analysis using pathfinder in Erithroid 
 
 #prepare dataset with 3 columns, gene names, log FC, adj.P.val
 test.dataset.E.go <- data.frame(select(res.E, genes, logFC, adj.P.Val))
@@ -336,12 +363,61 @@ test.dataset.E.go <- data.frame(select(res.E, genes, logFC, adj.P.Val))
 #select only upregulated genes in erithroid
 test.dataset.E.go <- test.dataset.E.go %>% filter(logFC > 0)
 
+#create dataset of pathways with related genes
+output.test.all.genes <- run_pathfindR(test.dataset.E.go, gene_sets = "GO-All", p_val_threshold = 0.05, max_gset_size = 9000, max_to_plot = 100, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop/pathfindeR results" )
+
+#plot bubble plot
+term_gene_heatmap(output.test.all.genes)
 
 
-run_pathfindR(test.dataset.E.go[1:500,], gene_sets = "GO-All", p_val_threshold = 0.05, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop" )
+#plot only for immune genes in E enriched pathways
+immune.terms <- unique(all.immuno.genes[,6])
+
+test.t <- output[output$Term_Description %in% immune.terms,]
+
+enrichment_chart(test.t, top_terms = 10)
+
+#plot only metabolic genes in E enriched pathways
+
+metabolic.terms <- unique(all.metabolic.genes.GO[,6])
+
+test.metabolic.GO <- output.test.all.genes[output.test.all.genes$Term_Description %in% metabolic.terms,]
+
+enrichment_chart(test.metabolic.GO, top_terms = 10)
+
+
+
+#write.csv(output, "Results/Module1/E_pathway_enrichment_pathfindR_3.csv", append = F, sep = "," )
+
+#output.from.saved.3 <-  read.csv("Results/Module1/E_pathway_enrichment_pathfindR_3.csv")
+
+#output.from.saved.3.t <- output.from.saved.3[,c(2:9),drop=FALSE]
+
+#enrichment_chart(output.from.saved.3.t)
+
+
+#prepare dataset with 3 columns, gene names, log FC, adj.P.val
+test.dataset.M.go <- data.frame(select(res.M, genes, logFC, adj.P.Val))
+
+#select only upregulated genes in erithroid
+test.dataset.M.go <- test.dataset.M.go %>% filter(logFC > 0)
+
+#create dataset of pathways with related genes
+output.test.all.genes <- run_pathfindR(test.dataset.M.go, gene_sets = "GO-All", p_val_threshold = 0.05, max_gset_size = 9000, max_to_plot = 100, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop/pathfindeR results" )
+
+
+
+
+
+
+
+
+
 
 write.csv(res.E.filtered, "Results/Module1/DEGs_E.csv")
 write.csv(res.M.filtered, "Results/Module1/DEGs_M.csv")
+
+
 
 
 
@@ -377,11 +453,19 @@ for(i in 1:length(contrast.names)){
 
 go.table <- read.csv("Results/Module1/_E_GOANA_GO_pathways.csv")
 
-go.table.pval.ordered <- go.table[with(go.table, order("P.Up")), ]
+go.table.pval.ordered <- go.table[order(go.table$P.Up),]
 
-go.table.pval.ordered <-go.table %>% arrange(desc(-FDR.up))
+#prepare dataset with 3 columns, gene names, log FC, adj.P.val
+#go.table.prepared <- data.matrix(select(go.table, Term, FDR.up))
+#enriched.go.table <- enrichment_chart(go.table.prepared)
 
-barplot(go.table.pval.ordered$FDR.up[1:10])
+barplot(go.table.pval.ordered$FDR.up[1:30], names.arg = go.table.pval.ordered$Term[1:30], horiz = T)
+
+
+
+#plot with GO plot
+
+
 
 ```
 
