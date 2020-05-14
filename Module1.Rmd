@@ -76,7 +76,7 @@ library(pathfindR)
 #library(GOplot)
 
 #package for GO clustering
-library(GO.db)
+#library(GO.db)
 
 source("helpermethods.R")
 load("genesets/geneset_Robjects/metabolic_signatures.Rda")
@@ -86,10 +86,6 @@ load("genesets/geneset_Robjects/metabolic_signatures.Rda")
 #BiocManager::install("KEGGgraph")
 #BiocManager::install("AnnotationDbi")
 #BiocManager::install("org.Hs.eg.db")
-
-BiocManager::install("RamiGO")
-
-library("RamiGO")
 
 
 all.reg.immuno.genes <- read.csv("C:/Users/acer/Desktop/immuno_genes.csv", fileEncoding = "UTF-16") #regulatory immune genes dataset form GO term
@@ -275,6 +271,7 @@ test <- data.frame(genes = reg.immuno)
 
 test.subset.E <- subset(res.E,genes %in% test$genes)
 
+test.M <- data.frame(genes = metabolic.genes)
 
 #volcano plot with labels for immune genes
 limma.volcano.immuno <- function(res, main="", fct=2, pt=0.05){
@@ -298,8 +295,32 @@ limma.volcano.immuno <- function(res, main="", fct=2, pt=0.05){
   p
 }
 
+#volcano plot with labels for metabolic genes
+limma.volcano.metabolic <- function(res, main="", fct=2, pt=0.05){
+  res$sign <- 0
+  res$sign[which(res$adj.P.Val < pt & abs(res$logFC) > fct)] <- 1
+  
+  res$sign[which(res$adj.P.Val < pt & abs(res$logFC) > fct & res$genes %in% metabolic.genes)] <- 2
+  
+  res.fitered <- subset(res,genes %in% test.M$genes)
+  
+  p <- ggplot(data=res, aes(x=logFC, y=-log10(adj.P.Val), colour=as.factor(sign))) + geom_point( size=2) +
+    
+    scale_color_manual(name="", values=c("4" = "orange","3" = "blue" ,"2" = "red","1"=
+                                           rgb(80/255,80/255, 80/255,0.2), "0"=rgb(220/255,220/255, 220/255,0.2))) +  
+    ggtitle(paste0("Volcano Plot - Limma metabolic", main)) +
+    theme(legend.position = "none") + xlim(-12,12) + 
+    xlab("log2 fold change") + ylab("-log10 adj pvalue") + 
+    geom_vline(xintercept=c(-fct, fct), linetype=2) + 
+    geom_hline(yintercept=-log10(pt), linetype=2)+
+    geom_text_repel(data=filter(res.fitered, -log10(adj.P.Val)>20), aes(label=genes))
+  p
+}
+
 
 limma.volcano.immuno(res.E)
+
+limma.volcano.metabolic(res.E)
 
 res.E.filtered <- res.E[res.E$adj.P.Val < 0.05,]
 
@@ -339,9 +360,8 @@ test.subset.heatmap <- test.subset.E[test.subset.E$adj.P.Val < 0.05 & test.subse
 
 genes.E.immuno <- c(test.subset.heatmap$gene[1:30])
 
-E.immuno.heatmap <- coolmap(v[genes.E.immuno,], cexRow=0.5, cexCol=0.5)
+coolmap(v[genes.E.immuno,], cexRow=0.5, cexCol=0.5)
 
-E.immuno.heatmap
 
 
 
@@ -385,6 +405,19 @@ test.metabolic.GO <- output.test.all.genes[output.test.all.genes$Term_Descriptio
 
 enrichment_chart(test.metabolic.GO, top_terms = 10)
 
+#plot gluco,lypid and amino acid metabolic related enriched pathways in E
+
+gluco.terms <- unique(all.glyco.genes.GO[,6])
+lypid.terms <- unique(all.lypid.genes.GO[,6])
+amino_acid.terms <- unique(all.amino.acid.genes.GO[,6])
+
+gluco.lypid.amino.terms <- cbind(gluco.terms[,2], lypid.terms[,2], amino_acid.terms[,2])
+
+
+gluco.lypid.amino.GO.terms <- output.test.all.genes[output.test.all.genes$Term_Description %in% amino_acid.terms,]
+
+enrichment_chart(test.metabolic.GO, top_terms = 10)
+
 
 
 #write.csv(output, "Results/Module1/E_pathway_enrichment_pathfindR_3.csv", append = F, sep = "," )
@@ -403,7 +436,19 @@ test.dataset.M.go <- data.frame(select(res.M, genes, logFC, adj.P.Val))
 test.dataset.M.go <- test.dataset.M.go %>% filter(logFC > 0)
 
 #create dataset of pathways with related genes
-output.test.all.genes <- run_pathfindR(test.dataset.M.go, gene_sets = "GO-All", p_val_threshold = 0.05, max_gset_size = 9000, max_to_plot = 100, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop/pathfindeR results" )
+output.test.M.all.genes <- run_pathfindR(test.dataset.M.go, gene_sets = "GO-All", p_val_threshold = 0.05, max_gset_size = 9000, max_to_plot = 100, adj_method = "bonferroni", output_dir = "C:/Users/acer/Desktop/pathfindeR results" )
+
+enrichment_chart(output.test.M.all.genes)
+
+#plot only for immune genes in M enriched pathways
+immune.M.terms <- output.test.M.all.genes[output.test.M.all.genes$Term_Description %in% immune.terms,]
+
+enrichment_chart(immune.M.terms, top_terms = 10)
+
+#plot only metabolic genes in M enriched pathways
+metabolic.M.terms <- output.test.M.all.genes[output.test.M.all.genes$Term_Description %in% metabolic.terms,]
+
+enrichment_chart(metabolic.M.terms, top_terms = 10)
 
 
 
@@ -424,8 +469,13 @@ write.csv(res.M.filtered, "Results/Module1/DEGs_M.csv")
 
 
  ```
-
-
+ 
+ 
+```{r pressure2}
+ 
+ 
+ 
+ ```
 # Gene-set overrepresentation analysis
 Approach 1. Geneset overrepresentation analysis: This works by seeing if your differentially expressed genes occur at a high frequency in a given geneset, relative to chance. The Null hypothesis here is that if a geneset represents 1% of all genes in the experiment then 1% of the genes in the pathway would be differentially expressed. This does assume that genes are independent which has been shown not to be true.  We perform these analyses using the kegga and goana methods available in the limma package. 
 
